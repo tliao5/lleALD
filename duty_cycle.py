@@ -10,25 +10,32 @@ import nidaqmx
 """
 def duty_cycle(stopthread,duty_queue,task):
     voltageold=False
+    
 	# Get duty from duty_queue passed in, duty_queue must be set before thread is started
-    duty = duty_queue.get(block=True)
+    # duty = duty_queue.get(block=True)
+    print('thread started')
+    print(stopthread.is_set())
     while not stopthread.is_set():
     # Check for user input to change Duty Cycle
         if not duty_queue.empty():
             duty = duty_queue.get(block=False)
-
+    
 		# Duty cycle logic, only send a trigger to the daq if the voltage must be flipped
-        for i in range(100):
+        for i in range(200):
             if i < duty:
+                #print("voltage:True")
                 voltage=True
             else:
+                #print("voltage:False")
                 voltage=False
             if voltageold!=voltage:
                 voltageold = voltage
                 task.write(voltage)
-            time.sleep(0.1)
+            time.sleep(0.05)
+            
     task.write(False)
     task.stop()
+    print('Thread stopping')
 
 """ Set Duty of duty cycle -- Asks user for input of duty (0-100)
     duty_queue - queue.Queue() -- inputs which queue to pass user input to
