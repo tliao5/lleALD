@@ -10,14 +10,17 @@ def threadB(stopevent):
 
 def threadA(stopevent,task_queue):
 	userinput = 'A'
+	count=0
 	while not stopevent.is_set():
+		count+=1
 		if not task_queue.empty():
 			userinput = task_queue.get(block=False)
 		if printevent.is_set():
+			print(count)
 			print(userinput)
 		time.sleep(1)
 		
-def duty_cycle(stopthread,duty_queue,task):
+def duty_cycle(stopthread,duty_queue):
         voltageold=False
 
 		# Get duty from duty_queue passed in, duty_queue must be set before thread is started
@@ -35,7 +38,8 @@ def duty_cycle(stopthread,duty_queue,task):
                     voltage=False
                 if voltageold!=voltage:
                     voltageold = voltage
-                    task.write(voltage)
+                    print(voltage)
+					#task.write(voltage)
                 time.sleep(0.1)
 
 def setDuty(duty_queue):
@@ -55,7 +59,7 @@ printevent = threading.Event()
 printevent.set()
 tA = threading.Thread(target=threadA,args=(stopevent,task_queue))
 tA.daemon = True
-dutyThread = threading.Thread(target=duty_cycle,args=(stopevent,duty_queue,task))
+dutyThread = threading.Thread(target=duty_cycle,args=(stopevent,duty_queue))
 dutyThread.daemon = True
 
 tA.start()
