@@ -1,4 +1,5 @@
 import nidaqmx
+from nidaqmx.constants import AcquisitionType, LineGrouping
 import threading
 import queue
 import time
@@ -13,11 +14,9 @@ import duty_cycle as duty
 
 
 # DAQ Channels
-Pchannel = "cDAQ1Mod2/ai2" # What is this channel for?
-mpchannel = "CDAQ1Mod4/line11" # Main Power Switch
-h1channel = "CDAQ1Mod4/port0/line5" # Heater 1
-h2channel = "CDAQ1Mod4/port0/line6" # Heater 2
-h3channel = "CDAQ1Mod4/port0/line7" # Heater 3
+# Pchannel = "cDAQ1Mod2/ai2" # What is this channel for?
+# mpchannel = "CDAQ1Mod4/line11" # Main Power Switch
+h1channel = "CDAQ1Mod4/port0/line8" # Heater 1
 
 # DAQ Tasks
 # mptask - Main Power
@@ -26,7 +25,7 @@ h3channel = "CDAQ1Mod4/port0/line7" # Heater 3
 # h3task - 
 
 # Setup of DAQ tasks
-mptask=nidaqmx.Task()
+#mptask=nidaqmx.Task()
 
 # need to figure out if it is possible to roll the different heater control tasks into one task
 h1task=nidaqmx.Task() 
@@ -34,35 +33,31 @@ h1task=nidaqmx.Task()
 #h3task=nidaqmx.Task()
 
 # Turn on the main power to system
-mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
-mptask.start()
-mptask.write(True)
-mptask.stop()
+#mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
+#mptask.start()
+#mptask.write(True)
+#mptask.stop()
 
 # Initialize heater tasks
-h1task.start()
-#h2task.start()
-#h3task.start()
+
 h1task.do_channels.add_do_chan(h1channel, line_grouping=LineGrouping.CHAN_PER_LINE)
-#h2task.do_channels.add_do_chan(h2channel, line_grouping=LineGrouping.CHAN_PER_LINE)
-#h3task.do_channels.add_do_chan(h3channel, line_grouping=LineGrouping.CHAN_PER_LINE)
+
+h1task.start()
 
 # Create Duty Cycle threads
 stopthread=threading.Event()
 h1queue=queue.Queue()
-#h2queue=queue.Queue()
-#h3queue=queue.Queue()
-
-h1dutycycle = threading.Thread(target=duty_cycle(0),args=(stopthread,h1queue,h1task))
-#h2dutycycle = threading.Thread(target=duty_cycle(0),args=(stopthread,h2queue,h2task))
-#h3dutycycle = threading.Thread(target=duty_cycle(0),args=(stopthread,h3queue,h3task))
-
-h1dutycycle.start()
-#h2dutycycle.start()
-#h3dutycycle.start()
+print('test0')
 
 # Set initial value for duty cycle
 duty.setDuty(h1queue)
+print('test1')
+h1dutycycle = threading.Thread(target=duty.duty_cycle,args=(stopthread,h1queue,h1task))
+print('test2')
+h1dutycycle.start()
+print('test3')
+
+
 ### ^^^^^^^ Duty Cycle Code
 
 logging.basicConfig(filename='PressureTemperatureMarch.log', level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s", datefmt="%m/%d/%Y %H:%M:%S %p")
@@ -123,9 +118,10 @@ def on_key_press(event):
 
 fig.canvas.mpl_connect('key_press_event', on_key_press)
 ani = animation.FuncAnimation(fig, animate, fargs=(t_array, pressure), interval=500)
-plt.title("Press q to quit, Press d to change duty cycle")
+plt.title("Press q to quit")
 plt.show()
 
+"""
 i = input("Shut off main power? (y/n)")
 while True:
     if i == 'y':
@@ -137,5 +133,10 @@ while True:
     else:
         break
     
+"""
+stopthread.set()
+h1dutycycle.join()
+h1task.write(False)
+h1task.stop()
 
 
