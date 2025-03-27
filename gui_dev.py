@@ -5,6 +5,7 @@ import queue
 import time
 import logging
 import matplotlib.animation as animation
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
@@ -13,7 +14,7 @@ from tkinter import ttk
 
 def duty_cycle(stopthread, duty_queue, task, light):
     voltageold = False
-    duty = duty_queue.get(block=True)
+    duty = duty_queue.get(block=False)
     while not stopthread.is_set():
         if not duty_queue.empty():
             duty = duty_queue.get(block=False)
@@ -21,11 +22,12 @@ def duty_cycle(stopthread, duty_queue, task, light):
             voltage = i < duty
             if voltageold != voltage:
                 voltageold = voltage
-                light.config(bg="green" if voltage else "red")
+                #light.config(bg="green" if voltage else "red")
                 task.write(voltage)
-            time.sleep(0.1)
+            time.sleep(0.005)
     print(f"Task {task}: Task Closing, Voltage set to False")
     task.write(False)
+    task.close()
 
 # DAQ Channels
 Pchannel = "cDAQ1Mod2/ai2"  # Pressure channel
@@ -35,10 +37,10 @@ h2channel = "CDAQ1Mod4/port0/line6"  # Heater 2
 h3channel = "CDAQ1Mod4/port0/line7"  # Heater 3
 
 # DAQ Tasks
-mptask = nidaqmx.Task()
-h1task = nidaqmx.Task()
-h2task = nidaqmx.Task()
-h3task = nidaqmx.Task()
+mptask = nidaqmx.Task("Main Power")
+h1task = nidaqmx.Task("Heater 1")
+h2task = nidaqmx.Task("Heater 2")
+h3task = nidaqmx.Task("Heater 3")
 
 # Main power off by default
 mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
@@ -61,42 +63,17 @@ h1queue = queue.Queue()
 h2queue = queue.Queue()
 h3queue = queue.Queue()
 
-# Setup for plotting
-fig, ax = plt.subplots()
-t_array = deque(maxlen=300)
-pressure = deque(maxlen=300)
-t_start = time.time()
-
-def animate(i, t_array, pressure):
-    try:
-        data = np.random.random(8)  # Dummy data
-        logging.info(data)
-        pressure.append(round(data[7] / 10, 5))
-        t_array.append(time.time() - t_start)
-
-        ax.clear()
-        ax.plot(t_array, pressure)
-        ax.set_ylim(0.4, .8)
-        ax.set_yscale('log')
-        ax.set_title("Press q to quit")
-        ax.set_xlim(left=t_array[0], right=t_array[0] + 300)
-
-        for j in range(len(data) - 1):
-            ax.text(t_array[0] + 200, .6 + .03 * j, f"Sensor {j}, {data[j]:.2f}")
-    except Exception as e:
-        logging.error("Error during animation: %s", e)
-
 # Tkinter GUI
 class HeaterControlApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Heater Control")
-        self.geometry("500x300")
-
+        self.geometry("800x500")
+        self.task = self.initialize_task()
         self.create_widgets()
 
     def create_widgets(self):
-        self.main_power_button = ttk.Button(self, text="Main Power Off", command=self.toggle_main_power)
+        self.main_power_button = ttk.Button(self, text="Main Power Off",  command= lambda: self.toggle_main_power(mptask))
         self.main_power_button.grid(row=0, column=0, padx=10, pady=10)
         self.main_power_light = tk.Canvas(self, width=20, height=20, bg="red")
         self.main_power_light.grid(row=0, column=1, padx=10, pady=10)
@@ -131,7 +108,19 @@ class HeaterControlApp(tk.Tk):
         self.h2_light.grid(row=2, column=2, padx=10, pady=10)
         self.h3_light = tk.Canvas(self, width=20, height=20, bg="red")
         self.h3_light.grid(row=3, column=2, padx=10, pady=10)
-
+        
+        self.fig, self.ax, self.pressure, self.t_array, self.t_start, self.sensors = self.plotinitialize()
+        # Start the animation in the main thread
+        ani = animation.FuncAnimation(self.fig, self.animate, interval=500)
+         
+        tempplot = FigureCanvasTkAgg(self.fig, self)
+        tempplot.draw()
+        tempplot.get_tk_widget().grid(row=0, column=5,rowspan=40, columnspan=30,padx=10, pady=10,sticky=tk.EW)
+        toolbarFrame = tk.Frame(master=self)
+        toolbarFrame.grid(row=41,column=5)
+        toolbar = NavigationToolbar2Tk(tempplot, toolbarFrame)
+  
+        
         # Create Duty Cycle threads
         self.h1dutycycle = threading.Thread(target=duty_cycle, args=(stopthread, h1queue, h1task, self.h1_light))
         self.h2dutycycle = threading.Thread(target=duty_cycle, args=(stopthread, h2queue, h2task, self.h2_light))
@@ -141,16 +130,67 @@ class HeaterControlApp(tk.Tk):
         self.h2dutycycle.start()
         self.h3dutycycle.start()
 
-    def toggle_main_power(self):
+    def plotinitialize(self):
+        logging.basicConfig(filename='PressureTemperatureMarch.log', level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s", datefmt="%m/%d/%Y %H:%M:%S %p")
+        
+        plt.rcParams["figure.figsize"] = [13.00, 6.50]
+        plt.rcParams["figure.autolayout"] = True
+
+        fig, ax = plt.subplots()
+        pressure = deque([0.1], maxlen=200)
+        t_start = time.time()
+        t_array = deque([0], maxlen=200)
+        sensors = ["main reactor", "inlet lower", "inlet upper", "exhaust", "TMA", "Trap", "Gauges", "Pressure"]
+        return fig, ax, pressure, t_array, t_start, sensors
+       
+    def initialize_task(self):
+        logging.info("Starting a new run")
+        logging.info("main reactor,inlet lower, inlet upper, exhaust,TMA,Trap,Gauges,Pressure")
+        tempchannels = ["ai0", "ai1", "ai2", "ai3", "ai4", "ai5", "ai6"]
+        task = nidaqmx.Task("Thermocouples")
+        for channel_name in tempchannels:
+            task.ai_channels.add_ai_thrmcpl_chan(
+                "cDaq1Mod1/" + channel_name, name_to_assign_to_channel="", min_val=0.0, max_val=200.0,
+                units=nidaqmx.constants.TemperatureUnits.DEG_C, thermocouple_type=nidaqmx.constants.ThermocoupleType.K,
+                cjc_source=nidaqmx.constants.CJCSource.CONSTANT_USER_VALUE, cjc_val=20.0, cjc_channel=""
+            )
+        task.ai_channels.add_ai_voltage_chan("CDAQ1Mod2/ai2", min_val=0, max_val=5)
+        task.start()
+        return task
+
+    def animate(self,i):
+        try:
+            ax=self.ax
+            t_start=self.t_start
+            t_array=self.t_array
+            sensors=self.sensors
+            pressure=self.pressure
+        
+            data = self.task.read()
+            logging.info(data)  # data[7] is the voltage from the pressure controller, and needs to be converted to Torr (data[7]/10)
+            pressure.append(round(data[7] / 10, 5))
+            t_array.append(time.time() - t_start)
+            
+            ax.clear()
+            ax.plot(t_array, pressure)
+            ax.set_ylim(0.4, .8)
+            ax.set_yscale('log')
+            ax.set_title("Press q to quit")
+            ax.set_xlim(left=t_array[0], right=t_array[0] + 300)  # the +100 part may eventually need adjusting.
+
+            for j in range(len(sensors) - 1):
+                ax.text(t_array[0]+200,.6+.03*j,sensors[j]+", "+str(data[j])[0:5])
+        except Exception as e:
+            logging.error("Error during animation: %s", e)
+
+    def toggle_main_power(self,mptask):
         if self.main_power_button.config('text')[-1] == 'Main Power ON':
-            mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
             mptask.start()
             mptask.write(False)
             mptask.stop()
             self.main_power_button.config(text='Main Power OFF')
             self.main_power_light.config(bg="red")
         else:
-            mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
             mptask.start()
             mptask.write(True)
             mptask.stop()
@@ -171,24 +211,25 @@ class HeaterControlApp(tk.Tk):
     def on_closing(self):
         # Stop the duty cycle threads
         stopthread.set()
+        time.sleep(1)
         self.h1dutycycle.join()
+        time.sleep(1)
         self.h2dutycycle.join()
+        time.sleep(1)
         self.h3dutycycle.join()
-
-        h1task.write(False)
-        h1task.stop()
-        h2task.write(False)
-        h2task.stop()
-        h3task.write(False)
-        h3task.stop()
-
+        
+        
         # Turn off main power
         mptask.start()
         mptask.write(False)
         mptask.stop()
+        mptask.close()
+        
+        # Turn of Thermocouples
+        self.task.close()
 
         # Stop the animation
-        plt.close(fig)
+        plt.close(self.fig)
 
         # Call destroy method to close gui
         self.destroy()
@@ -199,9 +240,5 @@ if __name__ == "__main__":
 
     # trigger proper closing on press of red X button to close window
     aldgui.protocol("WM_DELETE_WINDOW", aldgui.on_closing)
-
-    # Start the animation in the main thread
-    ani = animation.FuncAnimation(fig, animate, fargs=(t_array, pressure), interval=500)
-    plt.show(block=False)
-
+    
     aldgui.mainloop()
