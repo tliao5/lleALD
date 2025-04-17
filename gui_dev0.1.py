@@ -110,13 +110,7 @@ class ControlPanelUi:
             light.grid(row=i, column=2, padx=10, pady=10)
             setattr(self, f"{name}_light", light)
 
-        manualcontrol_button = ttk.Button(self.frame, text="Manual Control", command=lambda: self.manualcontrol())
-
         self.start_threads
-
-    def manualcontrol():
-        #Creates a pop up window to do manual controls
-          
         
     def toggle_main_power(self,mptask):
         if self.main_power_button.config('text')[-1] == 'Main Power ON':
