@@ -1,20 +1,19 @@
-import datetime
-import queue
-import logging
-import time
-import threading
-import tkinter as tk
 from tkinter.scrolledtext import ScrolledText
 from tkinter import ttk, VERTICAL, HORIZONTAL, N, S, E, W
+import LLE_ALD_pythonlib
+import nidaqmx
+from nidaqmx.constants import LineGrouping
+import threading
+import queue
+import time
+import logging
 import matplotlib.animation as animation
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
 import tkinter as tk
-import nidaqmx
-from nidaqmx.constants import LineGrouping
-import LLE_ALD_pythonlib
+from tkinter import ttk
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +70,15 @@ class ConsoleUi:
         # Check every 100ms if there is a new message in the queue to display
         while True:
             try:
+                print('Trying Queue')
                 record = self.log_queue.get(block=False)
             except queue.Empty:
+                print('Queue Empty')
                 break
             else:
+                print('Tried')
                 self.display(record)
+        print('Polling again')
         self.frame.after(100, self.poll_log_queue)
 
 class ControlPanelUi:
@@ -83,19 +86,25 @@ class ControlPanelUi:
     def __init__(self, frame):
         self.frame = frame
 
-        self.main_power_button = ttk.Button(self.frame, text="Main Power Off", command=lambda: self.toggle_main_power(tasks["mptask"]))
+        self.main_power_button = ttk.Button(self.frame, text="Main Power Off", command=lambda: self.toggle_main_power(mptask))
         self.main_power_button.grid(row=0, column=0, padx=10, pady=10)
         self.main_power_light = tk.Canvas(self.frame, width=20, height=20, bg="red")
         self.main_power_light.grid(row=0, column=1, padx=10, pady=10)
 
         # Heater Buttons
+        # Create Duty Cycle threads
+        stopthread = threading.Event() 
+        h1queue = queue.Queue()
+        h2queue = queue.Queue()
+        h3queue = queue.Queue()
+        queues=[h1queue,h2queue,h3queue]
         for i, name in enumerate(["h1", "h2", "h3"], start=1):
             label = ttk.Label(self.frame, text=f"Heater {i} Duty Cycle:")
             label.grid(row=i, column=0, padx=10, pady=10)
             entry = ttk.Entry(self.frame)
             entry.insert(0, 0)
             entry.grid(row=i, column=1, padx=10, pady=10)
-            entry.bind("<Return>", lambda event, q=queues[f"{name}queue"], e=entry: self.update_duty_cycle(q, e))
+            entry.bind("<Return>", lambda event, q=queues[i-1], e=entry: self.update_duty_cycle(q, e))
             setattr(self, f"{name}_entry", entry)
             light = tk.Canvas(self.frame, width=20, height=20, bg="red")
             light.grid(row=i, column=2, padx=10, pady=10)
@@ -107,45 +116,22 @@ class ControlPanelUi:
 
     def manualcontrol():
         #Creates a pop up window to do manual controls
-        while True:
-            i = input("what would you like to do? (manualcontrol, runprogram, exit):  ")
-            if i == "exit":
-                print("goodbye")
-                break
-            elif i == "manualcontrol":
-                print("you are now in manual conrol.")
-                while True:
-                    manualinput = input("You can now call any function in the library (setValve, closeValves, pulseValve, getP). Type 'done' when done.")
-                    if manualinput == 'done':
-                        break
-                    elif manualinput == 'setValve':
-                        addr = input('enter relay number: ')
-                        state = input('enter state (True or False): ')
-                        if state == 'True':
-                            state = True
-                        elif state == 'False':
-                            state = False
-                        else:
-                            state = False
-                        aldGO.setValve(addr,state)
-                    elif manualinput =='closeValves':
-                        aldGO.closeValves()
-                    elif manualinput =='pulseValve':
-                        addr = input('enter relay number: ')
-                        pulseW = int(input('how long do you want the valve open? '))
-                        aldGO.pulseValve(addr, pulseW)
-                    elif manualinput == 'getP':
-                        print(aldGO.readPressure())
-                        
-            elif i == "runprogram":
-                file = aldGO.fileInput()
-                loops = int(input("how many times you wanna run through this thing?"))
-                print("here we go!")
-                aldGO.aldRun(file,loops)
-            else:
-                print("Umm, what? Please try again.")    
+          
         
-
+    def toggle_main_power(self,mptask):
+        if self.main_power_button.config('text')[-1] == 'Main Power ON':
+            mptask.start()
+            mptask.write(False)
+            mptask.stop()
+            self.main_power_button.config(text='Main Power OFF')
+            self.main_power_light.config(bg="red")
+        else:
+            mptask.start()
+            mptask.write(True)
+            mptask.stop()
+            self.main_power_button.config(text='Main Power ON')
+            self.main_power_light.config(bg="green")
+    
     def update_duty_cycle(self, queue, duty):
         try:
             duty_value = int(duty.get())
@@ -167,6 +153,7 @@ class ControlPanelUi:
 
     ## Duty Cycle
     def duty_cycle(stopthread, duty_queue, task):
+        logger.info(f"Task {task.name}: Task Starting")
         voltageold = False
         duty = duty_queue.get(block=False)
         while not stopthread.is_set():
@@ -178,7 +165,7 @@ class ControlPanelUi:
                     voltageold = voltage
                     task.write(voltage)
                 time.sleep(0.005)
-        logging.info(f"Task {task.name}: Task Closing, Voltage set to False")
+        logger.info(f"Task {task.name}: Task Closing, Voltage set to False")
         task.write(False)
         task.close()
 
@@ -193,18 +180,18 @@ class ControlPanelUi:
 class PlotUi:
     def __init__(self, frame):
         self.frame = frame
-        self.frame.grid(sticky="nsew")
+        self.task = self.initialize_task()
         self.fig, self.ax, self.pressure, self.t_array, self.t_start, self.sensors = self.plotinitialize()
         ani = animation.FuncAnimation(self.fig, self.animate, interval=500)
         tempplot = FigureCanvasTkAgg(self.fig, self.frame)
         tempplot.draw()
-        tempplot.get_tk_widget().grid(row=0, column=5, rowspan=40, columnspan=30, padx=10, pady=10, sticky=tk.EW)
+        tempplot.get_tk_widget().grid(column=0,row=4,sticky="nsew",padx=10,pady=10)
         toolbarFrame = tk.Frame(master=self.frame)
-        toolbarFrame.grid(row=41, column=5)
+        toolbarFrame.grid(column=0,row=5,sticky=W)
         NavigationToolbar2Tk(tempplot, toolbarFrame)
 
     def plotinitialize(self):
-        plt.rcParams["figure.figsize"] = [13.00, 6.50]
+        #plt.rcParams["figure.figsize"] = [1.00, 1.50]
         plt.rcParams["figure.autolayout"] = True
         fig, ax = plt.subplots()
         pressure = deque([0.1], maxlen=200)
@@ -216,7 +203,7 @@ class PlotUi:
     def animate(self, i):
         try:
             data = self.task.read()
-            logging.info(data)
+            logger.info(data)
             self.pressure.append(round(data[7] / 10, 5))
             self.t_array.append(time.time() - self.t_start)
             self.ax.clear()
@@ -228,52 +215,56 @@ class PlotUi:
             for j, sensor in enumerate(self.sensors[:-1]):
                 self.ax.text(self.t_array[0] + 200, .6 + .03 * j, f"{sensor}, {str(data[j])[:5]}")
         except Exception as e:
-            logging.error("Error during animation: %s", e)
+            logger.error("Error during animation: %s", e)
+    
+    def initialize_task(self):
+        logger.info("Starting a new run")
+        logger.info("main reactor,inlet lower, inlet upper, exhaust,TMA,Trap,Gauges,Pressure")
+        tempchannels = ["ai0", "ai1", "ai2", "ai3", "ai4", "ai5", "ai6"]
+        task = nidaqmx.Task()
+        for channel_name in tempchannels:
+            task.ai_channels.add_ai_thrmcpl_chan(
+                "cDaq1Mod1/" + channel_name, name_to_assign_to_channel="", min_val=0.0, max_val=200.0,
+                units=nidaqmx.constants.TemperatureUnits.DEG_C, thermocouple_type=nidaqmx.constants.ThermocoupleType.K,
+                cjc_source=nidaqmx.constants.CJCSource.CONSTANT_USER_VALUE, cjc_val=20.0, cjc_channel=""
+            )
+        task.ai_channels.add_ai_voltage_chan("CDAQ1Mod2/ai2", min_val=0, max_val=5)
+        task.start()
+        return task
 
     def on_closing(self):
         self.task.close()
         plt.close(self.fig)
-        self.destroy()
 
 class ALDControlApp(tk.Tk):
     def __init__(self):
+        super().__init__()
         self.title("ALD Control")
         self.geometry("800x500")
-        self.task = self.initialize_task()
         self.create_widgets()
-    
-    def initialize_task(self):
-        logging.info("Starting a new run")
-        logging.info("main reactor,inlet lower, inlet upper, exhaust,TMA,Trap,Gauges,Pressure")
-        tempchannels = ["ai0", "ai1", "ai2", "ai3", "ai4", "ai5", "ai6"]
-        task = nidaqmx.Task()
-        for channel_name in tempchannels:
-            task.ai_channels().add_ai_thrmcpl_chan(
-                f"cDaq1Mod1/{channel_name}", min_val=0.0, max_val=200.0,
-                units="DEG_C", thermocouple_type="K",
-                cjc_source="CONSTANT_USER_VALUE", cjc_val=20.0
-            )
-        task.ai_channels().add_ai_voltage_chan(channels["Pchannel"], min_val=0, max_val=5)
-        task.start()
-        return task
+   
 
     def create_widgets(self):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
         # Create the panes and frames
-        vertical_pane = ttk.PanedWindow(self.root, orient=VERTICAL)
+        vertical_pane = ttk.PanedWindow(self, orient=VERTICAL)
         vertical_pane.grid(row=0, column=0, sticky="nsew")
         horizontal_pane = ttk.PanedWindow(vertical_pane, orient=HORIZONTAL)
         vertical_pane.add(horizontal_pane)
         controlpanel_frame = ttk.Labelframe(horizontal_pane, text="Control Panel")
         controlpanel_frame.columnconfigure(1, weight=1)
         horizontal_pane.add(controlpanel_frame, weight=1)
-        console_frame = ttk.Labelframe(horizontal_pane, text="Console")
-        console_frame.columnconfigure(0, weight=1)
-        console_frame.rowconfigure(0, weight=1)
-        horizontal_pane.add(console_frame, weight=1)
-        plot_frame = ttk.Labelframe(vertical_pane, text="Plot")
-        vertical_pane.add(plot_frame, weight=1)
+        
+        plot_frame = ttk.Labelframe(horizontal_pane, text="Plot")
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        
+        horizontal_pane.add(plot_frame, weight=1)
+        
+        console_frame = ttk.Labelframe(vertical_pane, text="Console")
+        vertical_pane.add(console_frame, weight=1)
+        
         # Initialize all frames
         self.control = ControlPanelUi(controlpanel_frame)
         self.console = ConsoleUi(console_frame)
@@ -281,51 +272,48 @@ class ALDControlApp(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
-        mptask.start()
-        mptask.write(False)
-        mptask.stop()
-        mptask.close()
-        self.task.close()
-        plt.close(self.fig)
-        self.destroy()
+        self.quit()
 
-if __name__ == '__main__':
-    # DAQ Channels and Tasks
-    channels = {
-        "Pchannel": "cDAQ1Mod2/ai2", # pressure reading
-        "mpchannel": "CDAQ1Mod4/line11", # main power
-        "h1channel": "CDAQ1Mod4/port0/line5", # heater 1
-        "h2channel": "CDAQ1Mod4/port0/line6", # heater 2
-        "h3channel": "CDAQ1Mod4/port0/line7" # heater 3
-    }
+# DAQ Channels
+Pchannel = "cDAQ1Mod2/ai2"  # Pressure channel
+mpchannel = "CDAQ1Mod4/line11"  # Main Power Switch
+h1channel = "CDAQ1Mod4/port0/line5"  # Heater 1
+h2channel = "CDAQ1Mod4/port0/line6"  # Heater 2
+h3channel = "CDAQ1Mod4/port0/line7"  # Heater 3
 
-    # declare Tasks
-    Ptask = nidaqmx.Task()
-    mptask = nidaqmx.Task()
-    h1task = nidaqmx.Task()
-    h2task = nidaqmx.Task()
-    h3task = nidaqmx.Task()
+# DAQ Tasks
+mptask = nidaqmx.Task("Main Power")
+h1task = nidaqmx.Task("Heater 1")
+h2task = nidaqmx.Task("Heater 2")
+h3task = nidaqmx.Task("Heater 3")
 
-    # Main Power on
-    mptask.do_channels().add_do_chan(channels["mpchannel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-    mptask.start()
-    mptask.write(True)
-    mptask.stop()
+# Main power off by default
+mptask.do_channels.add_do_chan(mpchannel, line_grouping=LineGrouping.CHAN_PER_LINE)
+mptask.start()
+mptask.write(False)
+mptask.stop()
 
-    # Initialize heater tasks
-    h1task.do_channels().add_do_chan(channels["h1channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-    h1task.start()
-    h2task.do_channels().add_do_chan(channels["h2channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-    h2task.start()
-    h3task.do_channels().add_do_chan(channels["h3channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-    h3task.start()
 
-    # Create Duty Cycle threads
-    stopthread = threading.Event()
-    h1queue = queue.Queue()
-    h2queue = queue.Queue()
-    h3queue = queue.Queue()
+# Initialize heater tasks
+h1task.do_channels.add_do_chan(h1channel, line_grouping=LineGrouping.CHAN_PER_LINE)
+h2task.do_channels.add_do_chan(h2channel, line_grouping=LineGrouping.CHAN_PER_LINE)
+h3task.do_channels.add_do_chan(h3channel, line_grouping=LineGrouping.CHAN_PER_LINE)
 
-    logging.basicConfig(filename=r'D:\LLE\testing\test.log', level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s", datefmt="%m/%d/%Y %H:%M:%S %p",force=True)
+h1task.start()
+h2task.start()
+h3task.start()
+
+def main():
+    logging.basicConfig(level=logging.INFO)
     app = ALDControlApp()
     app.mainloop()
+    
+    mptask.start()
+    mptask.write(False)
+    mptask.stop()
+    mptask.close()
+    
+
+
+if __name__ == '__main__':
+    main()
