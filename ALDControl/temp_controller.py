@@ -30,35 +30,38 @@ class temp_controller:
 
         self.tps = 200 # ticks per second for duty cycles
 
-        self.create_heater_queue()
-        self.create_heater_tasks()
-        self.start_threads()
+        self.queues = self.create_heater_queue()
+        self.tasks = self.create_heater_tasks()
+        self.threads = self.start_threads()
         self.thermocoupletask = self.create_thermocouple_tasks()
 
     def create_heater_queue(self):
-        self.h1queue = queue.Queue()
-        self.h2queue = queue.Queue()
-        self.h3queue = queue.Queue()
+        h1queue = queue.Queue()
+        h2queue = queue.Queue()
+        h3queue = queue.Queue()
+        return [h1queue,h2queue,h3queue]
 
     def create_heater_tasks(self):
-        self.h1task = nidaqmx.Task("Heater 1")
-        self.h2task = nidaqmx.Task("Heater 2")
-        self.h3task = nidaqmx.Task("Heater 3")
+        h1task = nidaqmx.Task("Heater 1")
+        h2task = nidaqmx.Task("Heater 2")
+        h3task = nidaqmx.Task("Heater 3")
 
-        self.h1task.do_channels.add_do_chan(self.channels["h1channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-        self.h2task.do_channels.add_do_chan(self.channels["h2channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
-        self.h3task.do_channels.add_do_chan(self.channels["h3channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
+        h1task.do_channels.add_do_chan(self.channels["h1channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
+        h2task.do_channels.add_do_chan(self.channels["h2channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
+        h3task.do_channels.add_do_chan(self.channels["h3channel"], line_grouping=LineGrouping.CHAN_PER_LINE)
+        return [h1task,h2task,h3task]
 
     def start_threads(self):
         # Create Duty Cycle threads
         self.stopthread = threading.Event()
 
-        self.h1dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.h1queue, self.h1task, self.tps))
-        self.h2dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.h2queue, self.h2task, self.tps))
-        self.h3dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.h3queue, self.h3task, self.tps))
-        self.h1dutycycle.start()
-        self.h2dutycycle.start()
-        self.h3dutycycle.start()
+        h1dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.queues[0], self.tasks[0], self.tps))
+        h2dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.queues[1], self.tasks[1], self.tps))
+        h3dutycycle = threading.Thread(target=self.duty_cycle, args=(self.stopthread, self.queues[2], self.tasks[2], self.tps))
+        h1dutycycle.start()
+        h2dutycycle.start()
+        h3dutycycle.start()
+        return [h1dutycycle,h2dutycycle,h3dutycycle]
     
     def create_thermocouple_tasks(self):
         logging.info("main reactor,inlet lower, inlet upper, exhaust,TMA,Trap,Gauges")
@@ -93,14 +96,15 @@ class temp_controller:
                 if voltageold != voltage: # check if voltage should change from 1->0 or 0->1
                     voltageold = voltage
                     task.write(voltage) # send update signal to DAQ
+                    print(f"{task.name}: "+str(voltage))
                 time.sleep(1/tps)
         
         # Close tasks after loop is told to stop by doing tc.stopthread.set() in main program
         logging.info(f"Task {task.name}: Task Closing, Voltage set to False")
         task.write(False)
         task.stop()
-        task.close()
         print(f"Task {task.name}: Task Closing, Voltage set to False")
+        task.close()
 
     def update_duty_cycle(self, queue, duty):
         try:
@@ -116,8 +120,6 @@ class temp_controller:
   
     def close(self):
         self.stopthread.set()
-        self.h1dutycycle.join()
-        self.h2dutycycle.join()
-        self.h3dutycycle.join()
+        for t in self.threads[::]: t.join()
         self.thermocoupletask.close()
         print("Thermocouple Task closing")

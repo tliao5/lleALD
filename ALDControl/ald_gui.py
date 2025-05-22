@@ -23,6 +23,7 @@ import random, threading, time
 from valve_controller import valve_controller
 from temp_controller import temp_controller
 from pressure_controller import pressure_controller
+from ald_controller import ald_controller
 
 # Constants
 BG_COLOR = "grey95"
@@ -41,6 +42,8 @@ class App(tk.Tk):
         self.valve_controller = valve_controller()
         self.temp_controller = temp_controller()
         self.pressure_controller = pressure_controller()
+        self.ald_controller=ald_controller()
+
 
         # Top pane with "Main Power" button
         top_pane = tk.PanedWindow(self, orient=tk.VERTICAL, bg=BG_COLOR, bd=0, sashwidth=5, sashpad=2)
@@ -69,23 +72,27 @@ class App(tk.Tk):
         bottom_pane.add(self.csv_panel)
         self.create_file_controls()
 
+        self.ald_panel = tk.Frame(bottom_pane, bg=TEXT_COLOR, highlightbackground=BORDER_COLOR,highlightthickness=1)
+        self.create_ald_panel()
+    
+    def create_ald_panel(self):
+        tk.Button(self.ald_panel, text="Run Recipe", bg=TEXT_COLOR, relief="flat", command=lambda:self.ald_controller.aldRun(100,self.valve_controller)).pack(pady=5, anchor=tk.NW)
+        
     def create_number_display_panel(self):
         frame = tk.Frame(bg=BG_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        for _ in range(3):
+        d1 = tk.StringVar()
+        d2 = tk.StringVar()
+        d3 = tk.StringVar()
+        d = [d1, d2, d3]
+        for i in range(3):
+            d[i].set(0)
             row = tk.Frame(frame, bg=BG_COLOR, pady=10)
             row.pack(fill=tk.X, padx=10, pady=5)
-            tk.Label(row, text="Set Value:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
-            tk.Entry(row, width=10).pack(side=tk.LEFT, padx=5)
-            tk.Button(row, text="Set", bg=TEXT_COLOR, relief="flat").pack(side=tk.LEFT, padx=5)
-            number_label = tk.Label(row, text="0", font=("Arial", 24), bg=BG_COLOR)
-            number_label.pack(side=tk.LEFT, padx=10)
-            #threading.Thread(target=self.update_number, args=(number_label,), daemon=True).start()
+            tk.Label(row, text=f"Heater {i+1}:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+            tk.Entry(row, width=10, textvariable=d[i]).pack(side=tk.LEFT, padx=5)
+            tk.Button(row, text="Set", bg=TEXT_COLOR, relief="flat", 
+                    command=lambda i=i: self.temp_controller.update_duty_cycle(self.temp_controller.queues[i], d[i])).pack(side=tk.LEFT, padx=5)
         return frame
-
-    def update_number(self, label):
-        while True:
-            label.config(text=str(random.randint(0, 100)))
-            time.sleep(1)
 
     def create_plot_panel(self, title):
         self.task = self.temp_controller.thermocoupletask
@@ -155,6 +162,7 @@ class App(tk.Tk):
         if file_path:
             self.file_label.config(text=f"Loaded: {file_path.split('/')[-1]}")
             self.display_csv(file_path)
+        self.ald_controller.file = file_path.split('/')[-1]
 
     def display_csv(self, file_path):
         for widget in self.csv_panel.winfo_children():
@@ -171,11 +179,13 @@ class App(tk.Tk):
 
     def on_closing(self):
         print("GUI closing")
-        self.valve_controller.close()
+        plt.close(self.fig)
         self.temp_controller.close()
         self.pressure_controller.close()
-        plt.close(self.fig)
+        self.valve_controller.close()
+        self.ald_controller.close()
         self.destroy()
+        print("Program Closed")
 
 
 
