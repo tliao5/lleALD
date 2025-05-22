@@ -28,8 +28,15 @@ from ald_controller import ald_controller
 # Constants
 BG_COLOR = "grey95"
 TEXT_COLOR = "white"
+ON_COLOR = "green"
+OFF_COLOR = "red"
+BUTTON_TEXT_COLOR = "white"
 BORDER_COLOR = "black"
 FONT = ("Arial", 14)
+
+#Pressure plot default y min and max
+Y_MIN_DEFAULT = 0.4
+Y_MAX_DEFAULT = 0.8
 
 MAIN_POWER_CHANNEL = "CDAQ1Mod4/line11"
 
@@ -54,19 +61,24 @@ class App(tk.Tk):
         self.mptask = self.create_main_power()
         
         top_frame = tk.Frame(top_pane, bg=BG_COLOR, height=50, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        self.main_power_button = tk.Button(top_frame, text='Main Power OFF', bg="red", relief="flat", command=lambda:self.toggle_main_power(self.mptask))
+        self.main_power_button = tk.Button(top_frame, text='Main Power OFF',fg=BUTTON_TEXT_COLOR, bg=OFF_COLOR, relief="flat", command=lambda:self.toggle_main_power(self.mptask))
         self.main_power_button.pack(pady=10)
         top_pane.add(top_frame)
 
         # Main content area
         main_pane = tk.PanedWindow(top_pane, orient=tk.VERTICAL, bg=BG_COLOR, bd=0, sashwidth=5)
+        main_pane.grid_rowconfigure(0, weight=1)
+        main_pane.grid_columnconfigure(0, weight=1)
         top_pane.add(main_pane)
-
+        
         # Horizontal PanedWindow
         horizontal_pane = tk.PanedWindow(main_pane, orient=tk.HORIZONTAL, bg=BG_COLOR, bd=0, sashwidth=5)
         main_pane.add(horizontal_pane)
         horizontal_pane.add(self.create_plot_panel("Left Panel Plot"))
         horizontal_pane.add(self.create_number_display_panel())
+        horizontal_pane.grid_rowconfigure(0, weight=1)
+        horizontal_pane.grid_columnconfigure(0, weight=1)
+        horizontal_pane.grid_columnconfigure(1, weight=1)
 
         # Bottom pane
         bottom_pane = tk.PanedWindow(main_pane, orient=tk.HORIZONTAL, bg=BG_COLOR, bd=0, sashwidth=5)
@@ -92,7 +104,7 @@ class App(tk.Tk):
         b1 = tk.Button()
         b2 = tk.Button()
         b3 = tk.Button()
-        self.heater_buttons= [b1,b2,b3]
+        self.heater_buttons= ["","",""]
         
         for i in range(3):
             d[i].set(0)
@@ -100,29 +112,60 @@ class App(tk.Tk):
             row.pack(fill=tk.X, padx=10, pady=5)
             tk.Label(row, text=f"Heater {i+1}:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
             tk.Entry(row, width=10, textvariable=d[i]).pack(side=tk.LEFT, padx=5)
-            self.heater_buttons[i]=tk.Button(row, text="Set", bg="red", relief="flat", 
-                    command=lambda i=i: self.set_duty_value(i,self.temp_controller.queues[i], d[i]))
-            self.heater_buttons[i]=tk.Button.pack(row,side=tk.LEFT, padx=5)
+            
+            # Create the button and assign it to self.heater_buttons[i]
+            button = tk.Button(row, text="Set", bg=OFF_COLOR,fg=BUTTON_TEXT_COLOR, relief="flat", 
+                                command=lambda i=i: self.set_duty_value(i, self.temp_controller.queues[i], d[i]))
+            button.pack(side=tk.LEFT, padx=5)  # Pack the button
+            self.heater_buttons[i] = button  # Assign the button to the list
+            
         return frame
        
-    def set_duty_value(self,t,d):
-        self.temp_controller.update_duty_cycle(i,t,d)
-        if d.get() == 0:
-            self.heater_buttons[i].config(bg="red")
+    def set_duty_value(self,i,t,d):
+        self.temp_controller.update_duty_cycle(t,d)
+        if int(d.get()) == 0:
+            print(d.get())
+            self.heater_buttons[i].config(bg=OFF_COLOR)
         else: 
-            self.heater_buttons[i].config(bg="green")
+            self.heater_buttons[i].config(bg=ON_COLOR)
 
     def create_plot_panel(self, title):
         self.task = self.temp_controller.thermocoupletask
         frame = tk.Frame(bg=TEXT_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
         self.fig, self.ax, self.pressure, self.t_array, self.t_start, self.sensors = self.plotinitialize()
         ani = animation.FuncAnimation(self.fig, self.animate, interval=500)
         tempplot = FigureCanvasTkAgg(self.fig, frame)
         tempplot.draw()
-        tempplot.get_tk_widget().grid(row=0, column=5, rowspan=40, columnspan=30, padx=10, pady=10, sticky=tk.EW)
+        tempplot.get_tk_widget().grid(row=0, column=0, rowspan=40, columnspan=30, padx=10, pady=10, sticky=tk.NSEW)
+        
+        # Add toolbar below the plot
         toolbarFrame = tk.Frame(master=frame)
-        toolbarFrame.grid(row=41, column=5)
+        toolbarFrame.grid(row=41, column=0, columnspan=30, pady=5)
         NavigationToolbar2Tk(tempplot, toolbarFrame)
+
+        # Initialize y-min and y-max variables
+        self.ymin = tk.StringVar()
+        self.ymin.set(Y_MIN_DEFAULT)
+        self.ymax = tk.StringVar()
+        self.ymax.set(Y_MAX_DEFAULT)
+
+        # Dynamically determine the next row and columnspan
+        next_row = frame.grid_size()[1]  # Get the next available row
+        columnspan = frame.grid_size()[0]  # Get the total number of columns
+
+        # Create row for y-min and y-max inputs
+        row = tk.Frame(frame, bg='orange', pady=10)
+        row.grid(row=next_row, column=0, columnspan=columnspan, pady=10)  # Place the row dynamically
+
+        # Add y-min and y-max labels and entry widgets
+        tk.Label(row, text="y-min:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+        tk.Entry(row, width=10, textvariable=self.ymin).pack(side=tk.LEFT, padx=5)
+        tk.Label(row, text="y-max:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+        tk.Entry(row, width=10, textvariable=self.ymax).pack(side=tk.LEFT, padx=5)
+
         return frame
 
     def plotinitialize(self):
@@ -137,19 +180,35 @@ class App(tk.Tk):
 
     def animate(self, i):
         try:
+            # Read data from controllers
             tempdata = self.temp_controller.read_thermocouples()
             pressuredata = self.pressure_controller.read_pressure()
-            logging.info([tempdata,pressuredata])
+            logging.info([tempdata, pressuredata])
+
+            # Update pressure and time arrays
             self.pressure.append(round(pressuredata / 10, 5))
             self.t_array.append(time.time() - self.t_start)
+
+            # Clear and update the plot
             self.ax.clear()
             self.ax.plot(self.t_array, self.pressure)
-            self.ax.set_ylim(0.4, .8)
+
+            # Set y-axis limits and scale
+            ymin = float(self.ymin.get())
+            ymax = float(self.ymax.get())
+            self.ax.set_ylim(ymin, ymax)
             self.ax.set_yscale('log')
+
+            # Set plot title and x-axis limits
             self.ax.set_title("Press q to quit")
             self.ax.set_xlim(left=self.t_array[0], right=self.t_array[0] + 300)
+
+            # Dynamically position text annotations based on log scale
             for j, sensor in enumerate(self.sensors[:-1]):
-                self.ax.text(self.t_array[0] + 200, .6 + .03 * j, f"{sensor}, {str(tempdata[j])[:5]}")
+                # Calculate y-position for text annotations
+                y_position = ymin * (ymax / ymin) ** (0.6 + 0.03 * j)  # Scale based on log range
+                self.ax.text(self.t_array[0] + 250, y_position, f"{sensor}, {str(tempdata[j])[:5]}")
+            self.fig.tight_layout()
         except Exception as e:
             logging.error("Error during animation: %s", e)
 
@@ -179,7 +238,7 @@ class App(tk.Tk):
             task.start()
             task.write(True)
             task.stop()
-            self.main_power_button.config(text='Main Power ON',bg="green")
+            self.main_power_button.config(text='Main Power ON',bg=ON_COLOR)
 
     def open_manual_control(self):
         manual_control_window = tk.Toplevel(self)
