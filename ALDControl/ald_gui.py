@@ -31,6 +31,8 @@ TEXT_COLOR = "white"
 BORDER_COLOR = "black"
 FONT = ("Arial", 14)
 
+MAIN_POWER_CHANNEL = "CDAQ1Mod4/line11"
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -48,9 +50,12 @@ class App(tk.Tk):
         # Top pane with "Main Power" button
         top_pane = tk.PanedWindow(self, orient=tk.VERTICAL, bg=BG_COLOR, bd=0, sashwidth=5, sashpad=2)
         top_pane.pack(fill=tk.BOTH, expand=True)
-
+        
+        self.mptask = self.create_main_power()
+        
         top_frame = tk.Frame(top_pane, bg=BG_COLOR, height=50, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        tk.Button(top_frame, text="Main Power", bg=TEXT_COLOR, relief="flat").pack(pady=10)
+        self.main_power_button = tk.Button(top_frame, text='Main Power OFF', bg="red", relief="flat", command=lambda:self.toggle_main_power(self.mptask))
+        self.main_power_button.pack(pady=10)
         top_pane.add(top_frame)
 
         # Main content area
@@ -84,15 +89,28 @@ class App(tk.Tk):
         d2 = tk.StringVar()
         d3 = tk.StringVar()
         d = [d1, d2, d3]
+        b1 = tk.Button()
+        b2 = tk.Button()
+        b3 = tk.Button()
+        self.heater_buttons= [b1,b2,b3]
+        
         for i in range(3):
             d[i].set(0)
             row = tk.Frame(frame, bg=BG_COLOR, pady=10)
             row.pack(fill=tk.X, padx=10, pady=5)
             tk.Label(row, text=f"Heater {i+1}:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
             tk.Entry(row, width=10, textvariable=d[i]).pack(side=tk.LEFT, padx=5)
-            tk.Button(row, text="Set", bg=TEXT_COLOR, relief="flat", 
-                    command=lambda i=i: self.temp_controller.update_duty_cycle(self.temp_controller.queues[i], d[i])).pack(side=tk.LEFT, padx=5)
+            self.heater_buttons[i]=tk.Button(row, text="Set", bg="red", relief="flat", 
+                    command=lambda i=i: self.set_duty_value(i,self.temp_controller.queues[i], d[i]))
+            self.heater_buttons[i]=tk.Button.pack(row,side=tk.LEFT, padx=5)
         return frame
+       
+    def set_duty_value(self,t,d):
+        self.temp_controller.update_duty_cycle(i,t,d)
+        if d.get() == 0:
+            self.heater_buttons[i].config(bg="red")
+        else: 
+            self.heater_buttons[i].config(bg="green")
 
     def create_plot_panel(self, title):
         self.task = self.temp_controller.thermocoupletask
@@ -143,6 +161,26 @@ class App(tk.Tk):
         # Add Manual Control Button
         tk.Button(self.file_panel, text="Manual Control", bg=TEXT_COLOR, relief="flat", command=self.open_manual_control).pack(pady=5, anchor=tk.NW)
 
+    def create_main_power(self):
+        task = nidaqmx.Task("Main Power")
+        task.do_channels.add_do_chan(MAIN_POWER_CHANNEL, line_grouping=LineGrouping.CHAN_PER_LINE)
+        task.start()
+        task.write(False)
+        task.stop()
+        return task
+
+    def toggle_main_power(self,task):
+        if self.main_power_button.config('text')[-1] == 'Main Power ON':
+            task.start()
+            task.write(False)
+            task.stop()
+            self.main_power_button.config(text='Main Power OFF',bg="red")
+        else:
+            task.start()
+            task.write(True)
+            task.stop()
+            self.main_power_button.config(text='Main Power ON',bg="green")
+
     def open_manual_control(self):
         manual_control_window = tk.Toplevel(self)
         manual_control_window.title("Manual Control")
@@ -184,6 +222,10 @@ class App(tk.Tk):
         self.pressure_controller.close()
         self.valve_controller.close()
         self.ald_controller.close()
+        
+        self.mptask.write(False)
+        self.mptask.close()
+        
         self.destroy()
         print("Program Closed")
 
