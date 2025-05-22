@@ -30,9 +30,10 @@ BG_COLOR = "grey95"
 TEXT_COLOR = "white"
 ON_COLOR = "green"
 OFF_COLOR = "red"
+BUTTON_STYLE = "raised"
 BUTTON_TEXT_COLOR = "white"
 BORDER_COLOR = "black"
-FONT = ("Arial", 14)
+FONT = ("Helvetica", 16)
 
 #Pressure plot default y min and max
 Y_MIN_DEFAULT = 0.4
@@ -61,7 +62,7 @@ class App(tk.Tk):
         self.mptask = self.create_main_power()
         
         top_frame = tk.Frame(top_pane, bg=BG_COLOR, height=50, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        self.main_power_button = tk.Button(top_frame, text='Main Power OFF',fg=BUTTON_TEXT_COLOR, bg=OFF_COLOR, relief="flat", command=lambda:self.toggle_main_power(self.mptask))
+        self.main_power_button = tk.Button(top_frame, text='Main Power OFF',fg=BUTTON_TEXT_COLOR, bg=OFF_COLOR, relief=BUTTON_STYLE, command=lambda:self.toggle_main_power(self.mptask))
         self.main_power_button.pack(pady=10)
         top_pane.add(top_frame)
 
@@ -93,7 +94,7 @@ class App(tk.Tk):
         self.create_ald_panel()
     
     def create_ald_panel(self):
-        tk.Button(self.ald_panel, text="Run Recipe", bg=TEXT_COLOR, relief="flat", command=lambda:self.ald_controller.aldRun(100,self.valve_controller)).pack(pady=5, anchor=tk.NW)
+        tk.Button(self.ald_panel, text="Run Recipe",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=lambda:self.ald_controller.aldRun(100,self.valve_controller)).pack(pady=5, anchor=tk.NW)
         
     def create_number_display_panel(self):
         frame = tk.Frame(bg=BG_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -111,10 +112,10 @@ class App(tk.Tk):
             row = tk.Frame(frame, bg=BG_COLOR, pady=10)
             row.pack(fill=tk.X, padx=10, pady=5)
             tk.Label(row, text=f"Heater {i+1}:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
-            tk.Entry(row, width=10, textvariable=d[i]).pack(side=tk.LEFT, padx=5)
+            tk.Entry(row, width=10, font=FONT, textvariable=d[i]).pack(side=tk.LEFT, padx=5)
             
             # Create the button and assign it to self.heater_buttons[i]
-            button = tk.Button(row, text="Set", bg=OFF_COLOR,fg=BUTTON_TEXT_COLOR, relief="flat", 
+            button = tk.Button(row, text="Set", font=FONT, bg=OFF_COLOR,fg=BUTTON_TEXT_COLOR, relief=BUTTON_STYLE, 
                                 command=lambda i=i: self.set_duty_value(i, self.temp_controller.queues[i], d[i]))
             button.pack(side=tk.LEFT, padx=5)  # Pack the button
             self.heater_buttons[i] = button  # Assign the button to the list
@@ -157,20 +158,21 @@ class App(tk.Tk):
         columnspan = frame.grid_size()[0]  # Get the total number of columns
 
         # Create row for y-min and y-max inputs
-        row = tk.Frame(frame, bg='orange', pady=10)
+        row = tk.Frame(frame, bg=TEXT_COLOR, pady=10)
         row.grid(row=next_row, column=0, columnspan=columnspan, pady=10)  # Place the row dynamically
 
         # Add y-min and y-max labels and entry widgets
-        tk.Label(row, text="y-min:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
-        tk.Entry(row, width=10, textvariable=self.ymin).pack(side=tk.LEFT, padx=5)
-        tk.Label(row, text="y-max:", bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
-        tk.Entry(row, width=10, textvariable=self.ymax).pack(side=tk.LEFT, padx=5)
+        tk.Label(row, text="y-min:", relief=BUTTON_STYLE, bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+        tk.Entry(row, width=10, textvariable=self.ymin, font=FONT).pack(side=tk.LEFT, padx=5)
+        tk.Label(row, text="y-max:", relief=BUTTON_STYLE, bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+        tk.Entry(row, width=10, textvariable=self.ymax, font=FONT).pack(side=tk.LEFT, padx=5)
 
         return frame
 
     def plotinitialize(self):
         plt.rcParams["figure.figsize"] = [13.00, 6.50]
         plt.rcParams["figure.autolayout"] = True
+        plt.rcParams['font.size'] = 14
         fig, ax = plt.subplots()
         pressure = deque([0.1], maxlen=200)
         t_start = time.time()
@@ -206,19 +208,19 @@ class App(tk.Tk):
             # Dynamically position text annotations based on log scale
             for j, sensor in enumerate(self.sensors[:-1]):
                 # Calculate y-position for text annotations
-                y_position = ymin * (ymax / ymin) ** (0.6 + 0.03 * j)  # Scale based on log range
+                y_position = ymin * (ymax / ymin) ** (0.6 + 0.05 * j)  # Scale based on log range
                 self.ax.text(self.t_array[0] + 250, y_position, f"{sensor}, {str(tempdata[j])[:5]}")
             self.fig.tight_layout()
         except Exception as e:
             logging.error("Error during animation: %s", e)
 
     def create_file_controls(self):
-        tk.Button(self.file_panel, text="Load File", bg=TEXT_COLOR, relief="flat", command=self.load_file).pack(pady=5, anchor=tk.NW)
+        tk.Button(self.file_panel, text="Load File",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=self.load_file).pack(pady=5, anchor=tk.NW)
         self.file_label = tk.Label(self.file_panel, text="", bg=BG_COLOR, font=FONT)
         self.file_label.pack(pady=5, anchor=tk.NW)
         
         # Add Manual Control Button
-        tk.Button(self.file_panel, text="Manual Control", bg=TEXT_COLOR, relief="flat", command=self.open_manual_control).pack(pady=5, anchor=tk.NW)
+        tk.Button(self.file_panel, text="Manual Control",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=self.open_manual_control).pack(pady=5, anchor=tk.NW)
 
     def create_main_power(self):
         task = nidaqmx.Task("Main Power")
@@ -250,9 +252,9 @@ class App(tk.Tk):
             frame = tk.Frame(manual_control_window, bg=BG_COLOR, pady=10)
             frame.pack(fill=tk.X, padx=10, pady=5)
             tk.Label(frame, text=valve_name, bg=BG_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
-            tk.Button(frame, text="Open", bg=TEXT_COLOR, relief="flat", command=lambda t=task: self.valve_controller.open_valve(t)).pack(side=tk.LEFT, padx=5)
-            tk.Button(frame, text="Close", bg=TEXT_COLOR, relief="flat", command=lambda t=task: self.valve_controller.close_valve(t)).pack(side=tk.LEFT, padx=5)
-            tk.Button(frame, text="Pulse", bg=TEXT_COLOR, relief="flat", command=lambda t=task: self.valve_controller.pulse_valve(t, 1)).pack(side=tk.LEFT, padx=5)
+            tk.Button(frame, text="Open",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=lambda t=task: self.valve_controller.open_valve(t)).pack(side=tk.LEFT, padx=5)
+            tk.Button(frame, text="Close",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=lambda t=task: self.valve_controller.close_valve(t)).pack(side=tk.LEFT, padx=5)
+            tk.Button(frame, text="Pulse",font=FONT, bg=TEXT_COLOR, relief=BUTTON_STYLE, command=lambda t=task: self.valve_controller.pulse_valve(t, 1)).pack(side=tk.LEFT, padx=5)
 
     def load_file(self):
         file_path = filedialog.askopenfilename(title="Select a File", filetypes=[("CSV Files", "*.csv")])
